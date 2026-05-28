@@ -1,4 +1,24 @@
 const recipeImageBucket = "recipe-images";
+const categoryGroups = [
+  {
+    title: "Ernaehrung",
+    items: ["Vegan", "Vegetarisch", "Glutenfrei", "Laktosefrei", "Low Carb", "High Protein"]
+  },
+  {
+    title: "Speiseart",
+    items: ["Auflauf", "Eintopf", "Pasta", "Pizza", "Salat", "Suppen", "Hauptspeise", "Vorspeise", "Beilage"]
+  },
+  {
+    title: "Zutaten",
+    items: ["Nudeln", "Reis", "Kartoffeln", "Gemüse", "Hülsenfrüchte", "Käse", "Fisch", "Fleisch"]
+  },
+  {
+    title: "Anlass",
+    items: ["Frühstück", "Dessert", "Backen", "Kuchen", "Getränke", "Kinder", "Party", "Grillen", "Resteverwertung", "Meal Prep"]
+  }
+];
+const defaultCategories = categoryGroups.flatMap((group) => group.items);
+const ingredientUnits = ["g", "kg", "ml", "l", "Stk.", "EL", "TL", "Prise", "Bund", "Dose", "Packung"];
 let supabaseClient;
 
 function escapeHtml(value) {
@@ -27,6 +47,49 @@ function toNumber(value, fallback = 0) {
 function splitLines(value) {
   return String(value || "")
     .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function parseIngredient(value) {
+  const parts = String(value || "").trim().split(/\s+/);
+  const amount = parts[0] || "";
+  const unit = ingredientUnits.includes(parts[1]) ? parts[1] : "";
+  const name = unit ? parts.slice(2).join(" ") : parts.slice(1).join(" ");
+
+  return {
+    amount: /^\d/.test(amount) ? amount : "",
+    unit,
+    name: /^\d/.test(amount) ? name : String(value || "")
+  };
+}
+
+function recipeDifficultyText(value) {
+  const labels = {
+    Einfach: 1,
+    Mittel: 3,
+    Anspruchsvoll: 5
+  };
+  const number = labels[value] || toNumber(value, 1);
+  return `${number} ${number === 1 ? "Kompass" : "Kompasse"}`;
+}
+
+function recipeDifficultyValue(value) {
+  const labels = {
+    Einfach: 1,
+    Mittel: 3,
+    Anspruchsvoll: 5
+  };
+  return labels[value] || toNumber(value, 1);
+}
+
+function splitCategories(value) {
+  return String(value || "")
+    .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -114,6 +177,8 @@ async function logoutUser() {
 function normalizeRecipe(recipe) {
   return {
     id: recipe.id,
+    userId: recipe.user_id || recipe.userId || "",
+    isPublic: Boolean(recipe.is_public ?? recipe.isPublic),
     title: recipe.title,
     category: recipe.category,
     time: toNumber(recipe.time_minutes ?? recipe.time, 0),
@@ -129,7 +194,7 @@ function normalizeRecipe(recipe) {
   };
 }
 
-async function getSavedRecipes() {
+async function getVisibleRecipes() {
   const client = getSupabase();
   const user = await getCurrentUser();
   if (!client) return [];
@@ -154,7 +219,53 @@ async function getSavedRecipes() {
 }
 
 async function allRecipes() {
-  return getSavedRecipes();
+  return getVisibleRecipes();
+}
+
+async function getOwnRecipes() {
+  const client = getSupabase();
+  const user = await getCurrentUser();
+  if (!client || !user) return [];
+
+  const { data, error } = await client
+    .from("recipes")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("is_public", false)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+
+  return (data || []).map(normalizeRecipe);
+}
+
+async function getFavoriteRecipeIds() {
+  const client = getSupabase();
+  const user = await getCurrentUser();
+  if (!client || !user) return [];
+
+  const { data, error } = await client
+    .from("recipe_favorites")
+    .select("recipe_id")
+    .eq("user_id", user.id);
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+
+  return (data || []).map((favorite) => favorite.recipe_id);
+}
+
+async function getFavoriteRecipes() {
+  const favoriteIds = await getFavoriteRecipeIds();
+  if (!favoriteIds.length) return [];
+
+  const recipes = await allRecipes();
+  return recipes.filter((recipe) => favoriteIds.includes(recipe.id));
 }
 
 async function uploadRecipeImage(file, userId) {
@@ -200,11 +311,63 @@ async function addSavedRecipe(recipe, imageFile) {
   if (error) throw error;
 }
 
+async function updateSavedRecipe(recipeId, recipe, imageFile, currentImageUrl = "") {
+  const client = getSupabase();
+  const user = await getCurrentUser();
+  if (!client || !user) throw new Error("Bitte melde dich an, um Rezepte zu bearbeiten.");
+
+  const imageUrl = await uploadRecipeImage(imageFile, user.id) || currentImageUrl;
+  const { error } = await client
+    .from("recipes")
+    .update({
+      title: recipe.title,
+      note: recipe.note,
+      category: recipe.category,
+      time_minutes: recipe.time,
+      servings: recipe.servings,
+      difficulty: recipe.difficulty,
+      prep_time_minutes: recipe.prepTime,
+      cook_time_minutes: recipe.cookTime,
+      ingredients: recipe.ingredients,
+      steps: recipe.steps,
+      image_url: imageUrl
+    })
+    .eq("id", recipeId)
+    .eq("user_id", user.id)
+    .eq("is_public", false);
+
+  if (error) throw error;
+}
+
+async function toggleFavorite(recipeId, shouldFavorite) {
+  const client = getSupabase();
+  const user = await getCurrentUser();
+  if (!client || !user) throw new Error("Bitte melde dich an, um Favoriten zu speichern.");
+
+  if (shouldFavorite) {
+    const { error } = await client
+      .from("recipe_favorites")
+      .upsert({ user_id: user.id, recipe_id: recipeId }, { onConflict: "user_id,recipe_id" });
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await client
+    .from("recipe_favorites")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("recipe_id", recipeId);
+  if (error) throw error;
+}
+
 function recipeUrl(recipe) {
   return `rezept.html?id=${encodeURIComponent(recipe.id)}`;
 }
 
 function recipeCard(recipe) {
+  const categoryTags = splitCategories(recipe.category)
+    .map((item) => `<span class="tag">${escapeHtml(item)}</span>`)
+    .join("");
   const ingredientTags = recipe.ingredients
     .slice(0, 4)
     .map((item) => `<span class="tag">${escapeHtml(item)}</span>`)
@@ -219,7 +382,7 @@ function recipeCard(recipe) {
       <strong>${escapeHtml(recipe.title)}</strong>
       <p>${escapeHtml(recipe.note || "Ein eigenes Rezept aus deiner Sammlung.")}</p>
       <div class="tag-row">
-        <span class="tag">${escapeHtml(recipe.category)}</span>
+        ${categoryTags}
         <span class="tag">${escapeHtml(recipe.time)} Min.</span>
         ${recipe.servings ? `<span class="tag">${escapeHtml(recipe.servings)} Portionen</span>` : ""}
         ${ingredientTags}
@@ -228,33 +391,257 @@ function recipeCard(recipe) {
   `;
 }
 
+function createCategoryButton(category, activeCategory) {
+  return `<button class="category-tab ${activeCategory ? "active" : ""}" data-category="${escapeAttribute(category)}" type="button">${escapeHtml(category)} ${activeCategory ? "" : "+"}</button>`;
+}
+
+function createIngredientRow(ingredient = {}) {
+  const unitOptions = ingredientUnits
+    .map((unit) => `<option ${unit === ingredient.unit ? "selected" : ""}>${escapeHtml(unit)}</option>`)
+    .join("");
+
+  return `
+    <div class="ingredient-row">
+      <input data-ingredient-amount inputmode="decimal" placeholder="Menge" value="${escapeAttribute(ingredient.amount || "")}">
+      <select data-ingredient-unit>
+        <option value="">Einheit</option>
+        ${unitOptions}
+      </select>
+      <input data-ingredient-name placeholder="Zutat" value="${escapeAttribute(ingredient.name || "")}">
+      <button class="icon-button" data-remove-row type="button" aria-label="Zutat entfernen">-</button>
+    </div>
+  `;
+}
+
+function createStepRow(value = "") {
+  return `
+    <div class="step-row">
+      <textarea data-step-text rows="3" placeholder="Schritt beschreiben">${escapeHtml(value)}</textarea>
+      <button class="icon-button" data-remove-row type="button" aria-label="Schritt entfernen">-</button>
+    </div>
+  `;
+}
+
+function setupRecipeBuilder(form, recipe = {}) {
+  const categoryInput = form.elements.category;
+  const categoryTabs = form.querySelector("[data-category-tabs]");
+  const selectedCategories = form.querySelector("[data-selected-categories]");
+  const customCategoryInput = form.querySelector("[data-custom-category]");
+  const addCategoryButton = form.querySelector("[data-add-category]");
+  const difficultyInput = form.elements.difficulty;
+  const compassRating = form.querySelector("[data-compass-rating]");
+  const prepInput = form.elements.prepTime;
+  const cookInput = form.elements.cookTime;
+  const totalTime = form.querySelector("[data-total-time]");
+  const ingredientRows = form.querySelector("[data-ingredient-rows]");
+  const stepRows = form.querySelector("[data-step-rows]");
+
+  const initialSelectedCategories = splitCategories(recipe.category || "");
+  const categories = [...new Set([...defaultCategories, ...initialSelectedCategories].filter(Boolean))];
+  let activeCategories = initialSelectedCategories;
+
+  const renderCategories = () => {
+    categoryInput.value = activeCategories.join(", ");
+    const customCategories = categories.filter((item) => !defaultCategories.includes(item));
+    categoryTabs.innerHTML = [
+      ...categoryGroups.map((group) => `
+        <div class="category-group">
+          <strong>${escapeHtml(group.title)}</strong>
+          <div>
+            ${group.items.map((item) => createCategoryButton(item, activeCategories.includes(item))).join("")}
+          </div>
+        </div>
+      `),
+      customCategories.length ? `
+        <div class="category-group">
+          <strong>Eigene Tags</strong>
+          <div>
+            ${customCategories.map((item) => createCategoryButton(item, activeCategories.includes(item))).join("")}
+          </div>
+        </div>
+      ` : ""
+    ].join("");
+    selectedCategories.innerHTML = `
+      <span>Ausgewaehlt</span>
+      <div>
+        ${activeCategories.length
+          ? activeCategories
+          .map((item) => `<button class="selected-category" data-selected-category="${escapeAttribute(item)}" type="button">${escapeHtml(item)} -</button>`)
+          .join("")
+          : `<span class="selected-empty">Keine Kategorie ausgewaehlt</span>`}
+      </div>
+    `;
+  };
+
+  const toggleCategory = (category) => {
+    activeCategories = activeCategories.includes(category)
+      ? activeCategories.filter((item) => item !== category)
+      : [...activeCategories, category];
+    renderCategories();
+  };
+
+  const setDifficulty = (difficulty) => {
+    const value = String(Math.max(1, Math.min(5, recipeDifficultyValue(difficulty))));
+    difficultyInput.value = value;
+    compassRating.innerHTML = [1, 2, 3, 4, 5]
+      .map((item) => `<button class="${item <= Number(value) ? "active" : ""}" data-difficulty="${item}" type="button" aria-label="${item} ${item === 1 ? "Kompass" : "Kompasse"}"><span class="material-symbols-outlined" aria-hidden="true">explore</span></button>`)
+      .join("");
+  };
+
+  const updateTotalTime = () => {
+    const total = toNumber(prepInput.value, 0) + toNumber(cookInput.value, 0);
+    totalTime.textContent = `Gesamt: ${total} Min.`;
+  };
+
+  const ensureRemovableState = (container, selector) => {
+    const rows = container.querySelectorAll(selector);
+    rows.forEach((row) => {
+      row.querySelector("[data-remove-row]").disabled = rows.length === 1;
+    });
+  };
+
+  const addIngredient = (ingredient = {}) => {
+    ingredientRows.insertAdjacentHTML("beforeend", createIngredientRow(ingredient));
+    ensureRemovableState(ingredientRows, ".ingredient-row");
+  };
+
+  const addStep = (value = "") => {
+    stepRows.insertAdjacentHTML("beforeend", createStepRow(value));
+    ensureRemovableState(stepRows, ".step-row");
+  };
+
+  categoryTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-category]");
+    if (button) toggleCategory(button.dataset.category);
+  });
+
+  selectedCategories.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-selected-category]");
+    if (button) toggleCategory(button.dataset.selectedCategory);
+  });
+
+  addCategoryButton.addEventListener("click", () => {
+    const category = customCategoryInput.value.trim();
+    if (!category) return;
+    if (!categories.includes(category)) categories.push(category);
+    if (!activeCategories.includes(category)) activeCategories.push(category);
+    customCategoryInput.value = "";
+    renderCategories();
+  });
+
+  compassRating.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-difficulty]");
+    if (button) setDifficulty(button.dataset.difficulty);
+  });
+
+  [prepInput, cookInput].forEach((input) => input.addEventListener("input", updateTotalTime));
+
+  form.querySelector("[data-add-ingredient]").addEventListener("click", () => addIngredient());
+  form.querySelector("[data-add-step]").addEventListener("click", () => addStep());
+
+  form.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-row]");
+    if (!button) return;
+
+    const ingredientRow = button.closest(".ingredient-row");
+    const stepRow = button.closest(".step-row");
+    if (ingredientRow && ingredientRows.querySelectorAll(".ingredient-row").length > 1) {
+      ingredientRow.remove();
+      ensureRemovableState(ingredientRows, ".ingredient-row");
+    }
+    if (stepRow && stepRows.querySelectorAll(".step-row").length > 1) {
+      stepRow.remove();
+      ensureRemovableState(stepRows, ".step-row");
+    }
+  });
+
+  if (recipe.prepTime !== undefined) prepInput.value = recipe.prepTime;
+  if (recipe.cookTime !== undefined) cookInput.value = recipe.cookTime;
+  if (recipe.servings !== undefined && form.elements.servings) form.elements.servings.value = recipe.servings || 2;
+
+  renderCategories();
+  setDifficulty(recipe.difficulty || 1);
+  updateTotalTime();
+
+  const ingredients = recipe.ingredients?.length ? recipe.ingredients.map(parseIngredient) : [{}];
+  ingredients.forEach(addIngredient);
+  const steps = recipe.steps ? String(recipe.steps).split(/\n+/).filter(Boolean) : [""];
+  steps.forEach(addStep);
+}
+
+function myRecipeCard(recipe) {
+  return `
+    <article class="recipe-card">
+      ${recipe.image ? `<img class="recipe-card-image" src="${recipe.image}" alt="${escapeHtml(recipe.title)}">` : ""}
+      <strong>${escapeHtml(recipe.title)}</strong>
+      <p>${escapeHtml(recipe.note || "Ein eigenes Rezept aus deiner Sammlung.")}</p>
+      <div class="tag-row">
+        ${splitCategories(recipe.category).map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("")}
+        <span class="tag">${escapeHtml(recipe.time)} Min.</span>
+        ${recipe.servings ? `<span class="tag">${escapeHtml(recipe.servings)} Portionen</span>` : ""}
+      </div>
+      <div class="card-actions">
+        <a class="text-button" href="${recipeUrl(recipe)}">Ansehen</a>
+        <a class="text-button" href="bearbeiten.html?id=${encodeURIComponent(recipe.id)}">Bearbeiten</a>
+      </div>
+    </article>
+  `;
+}
+
 function setupAuthNavigation() {
   const nav = document.querySelector(".main-nav");
   if (!nav) return;
 
   getCurrentUser().then((user) => {
-    const existingAuthLink = nav.querySelector('a[href="auth.html"]');
-    const authItem = document.createElement(user ? "button" : "a");
-    authItem.className = user ? "nav-button" : "";
-    authItem.textContent = user ? `Abmelden (${userName(user)})` : "Anmelden";
+    const currentPage = window.location.pathname.split("/").pop() || "index.html";
+    const links = user
+      ? [
+        ["index.html", "Start"],
+        ["suche.html", "Rezeptsuche"]
+      ]
+      : [
+        ["index.html", "Start"],
+        ["suche.html", "Rezeptsuche"],
+        ["auth.html", "Anmelden"]
+      ];
+
+    nav.innerHTML = links
+      .map(([href, label]) => `<a class="${currentPage === href ? "active" : ""}" href="${href}">${label}</a>`)
+      .join("");
 
     if (user) {
-      authItem.type = "button";
-      authItem.addEventListener("click", async () => {
+      const userMenu = document.createElement("div");
+      const menuPages = ["erstellen.html", "meine-rezepte.html", "favoriten.html", "bearbeiten.html"];
+      userMenu.className = "user-menu";
+      userMenu.innerHTML = `
+        <button class="nav-button user-menu-button ${menuPages.includes(currentPage) ? "active" : ""}" type="button" aria-expanded="false">
+          ${escapeHtml(userName(user))}
+        </button>
+        <div class="user-menu-panel">
+          <a class="${currentPage === "erstellen.html" ? "active" : ""}" href="erstellen.html">Rezept erstellen</a>
+          <a class="${currentPage === "meine-rezepte.html" ? "active" : ""}" href="meine-rezepte.html">Meine Rezepte</a>
+          <a class="${currentPage === "favoriten.html" ? "active" : ""}" href="favoriten.html">Meine Favoriten</a>
+          <button class="menu-logout" type="button">Abmelden</button>
+        </div>
+      `;
+      const menuButton = userMenu.querySelector(".user-menu-button");
+      const logoutButton = userMenu.querySelector(".menu-logout");
+      menuButton.addEventListener("click", () => {
+        const isOpen = userMenu.classList.toggle("open");
+        menuButton.setAttribute("aria-expanded", String(isOpen));
+      });
+      logoutButton.type = "button";
+      logoutButton.addEventListener("click", async () => {
         await logoutUser();
         window.location.href = "auth.html";
       });
-    } else {
-      authItem.href = "auth.html";
-      if (window.location.pathname.endsWith("auth.html")) {
-        authItem.className = "active";
-      }
-    }
-
-    if (existingAuthLink) {
-      existingAuthLink.replaceWith(authItem);
-    } else {
-      nav.append(authItem);
+      document.addEventListener("click", (event) => {
+        if (!userMenu.contains(event.target)) {
+          userMenu.classList.remove("open");
+          menuButton.setAttribute("aria-expanded", "false");
+        }
+      });
+      nav.append(userMenu);
     }
   });
 }
@@ -305,7 +692,7 @@ async function renderSearch() {
         ...recipe.ingredients
       ].join(" ").toLowerCase();
       const matchesQuery = !query || haystack.includes(query);
-      const matchesCategory = category === "alle" || recipe.category === category;
+      const matchesCategory = category === "alle" || splitCategories(recipe.category).includes(category);
       const matchesTime = recipe.time <= maxTime;
       return matchesQuery && matchesCategory && matchesTime;
     });
@@ -350,22 +737,33 @@ async function setupRecipeForm() {
 
   const imageInput = form.elements.image;
   const preview = document.querySelector("#imagePreview");
+  setupRecipeBuilder(form, {
+    category: "Vegetarisch",
+    difficulty: 1,
+    prepTime: 10,
+    cookTime: 20,
+    ingredients: [""],
+    steps: ""
+  });
 
   if (imageInput && preview) {
     imageInput.addEventListener("change", async () => {
       const file = imageInput.files[0];
       if (!file) {
-        preview.innerHTML = "<span>Noch kein Bild ausgewaehlt</span>";
+        preview.innerHTML = "";
+        preview.hidden = true;
         return;
       }
 
       if (!file.type.startsWith("image/")) {
-        preview.innerHTML = "<span>Bitte waehle eine Bilddatei aus.</span>";
+        preview.innerHTML = "";
+        preview.hidden = true;
         imageInput.value = "";
         return;
       }
 
       const image = await readImageAsDataUrl(file);
+      preview.hidden = false;
       preview.innerHTML = `<img src="${image}" alt="Vorschau des ausgewaehlten Gerichts">`;
     });
   }
@@ -373,37 +771,53 @@ async function setupRecipeForm() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const message = document.querySelector("#formMessage");
-    const data = new FormData(form);
-    const title = data.get("title").trim();
-    const steps = data.get("steps").trim();
-    const note = data.get("note").trim();
-    const recipe = {
-      title,
-      category: data.get("category"),
-      time: toNumber(data.get("time"), 30),
-      servings: toNumber(data.get("servings"), 2),
-      difficulty: data.get("difficulty"),
-      prepTime: toNumber(data.get("prepTime"), 0),
-      cookTime: toNumber(data.get("cookTime"), 0),
-      ingredients: splitLines(data.get("ingredients")),
-      steps,
-      note: note || steps.split(/\n|\./)[0]
-    };
 
     try {
+      const data = new FormData(form);
+      const recipe = recipeFromForm(form);
       message.textContent = "Wird gespeichert...";
       await addSavedRecipe(recipe, data.get("image"));
-      form.reset();
-      form.elements.time.value = 30;
-      form.elements.servings.value = 2;
-      form.elements.prepTime.value = 10;
-      form.elements.cookTime.value = 20;
-      if (preview) preview.innerHTML = "<span>Noch kein Bild ausgewaehlt</span>";
-      message.textContent = "Gespeichert. Du findest es jetzt auch in der Suche.";
+      window.location.href = "meine-rezepte.html";
     } catch (error) {
       message.textContent = error.message || "Das Rezept konnte nicht gespeichert werden.";
     }
   });
+}
+
+function recipeFromForm(form) {
+  const data = new FormData(form);
+  const title = data.get("title").trim();
+  const steps = [...form.querySelectorAll("[data-step-text]")]
+    .map((input) => input.value.trim())
+    .filter(Boolean)
+    .join("\n");
+  const note = data.get("note").trim();
+  const prepTime = toNumber(data.get("prepTime"), 0);
+  const cookTime = toNumber(data.get("cookTime"), 0);
+  const ingredients = [...form.querySelectorAll(".ingredient-row")]
+    .map((row) => {
+      const amount = row.querySelector("[data-ingredient-amount]").value.trim();
+      const unit = row.querySelector("[data-ingredient-unit]").value.trim();
+      const name = row.querySelector("[data-ingredient-name]").value.trim();
+      return [amount, unit, name].filter(Boolean).join(" ");
+    })
+    .filter(Boolean);
+
+  if (!ingredients.length) throw new Error("Bitte fuege mindestens eine Zutat hinzu.");
+  if (!steps) throw new Error("Bitte fuege mindestens einen Zubereitungsschritt hinzu.");
+
+  return {
+    title,
+    category: data.get("category"),
+    time: prepTime + cookTime,
+    servings: toNumber(data.get("servings"), 2),
+    difficulty: data.get("difficulty"),
+    prepTime,
+    cookTime,
+    ingredients,
+    steps,
+    note: note || steps.split(/\n|\./)[0]
+  };
 }
 
 function setupAuthForms() {
@@ -444,6 +858,141 @@ function setupAuthForms() {
   });
 }
 
+async function renderMyRecipes() {
+  const container = document.querySelector("#myRecipes");
+  if (!container) return;
+
+  if (!getSupabase()) {
+    showSupabaseMissing(container);
+    return;
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    container.innerHTML = `
+      <section class="auth-required">
+        <p class="eyebrow">Anmeldung erforderlich</p>
+        <h2>Melde dich an, um deine Rezepte zu sehen.</h2>
+        <a class="button primary" href="auth.html">Anmelden</a>
+      </section>
+    `;
+    return;
+  }
+
+  const recipes = await getOwnRecipes();
+  container.innerHTML = recipes.length
+    ? recipes.map(myRecipeCard).join("")
+    : `<p class="empty-state">Du hast noch keine eigenen Rezepte erstellt.</p>`;
+}
+
+async function renderFavorites() {
+  const container = document.querySelector("#favoriteRecipes");
+  if (!container) return;
+
+  if (!getSupabase()) {
+    showSupabaseMissing(container);
+    return;
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    container.innerHTML = `
+      <section class="auth-required">
+        <p class="eyebrow">Anmeldung erforderlich</p>
+        <h2>Melde dich an, um Favoriten zu speichern.</h2>
+        <a class="button primary" href="auth.html">Anmelden</a>
+      </section>
+    `;
+    return;
+  }
+
+  const recipes = await getFavoriteRecipes();
+  container.innerHTML = recipes.length
+    ? recipes.map(recipeCard).join("")
+    : `<p class="empty-state">Noch keine Favoriten gespeichert.</p>`;
+}
+
+async function setupEditRecipeForm() {
+  const form = document.querySelector("#editRecipeForm");
+  if (!form) return;
+
+  if (!getSupabase()) {
+    showSupabaseMissing(form.parentElement);
+    return;
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    form.outerHTML = `
+      <section class="auth-required">
+        <p class="eyebrow">Anmeldung erforderlich</p>
+        <h2>Melde dich an, um Rezepte zu bearbeiten.</h2>
+        <a class="button primary" href="auth.html">Anmelden</a>
+      </section>
+    `;
+    return;
+  }
+
+  const recipeId = new URLSearchParams(window.location.search).get("id");
+  const message = document.querySelector("#editMessage");
+  const preview = document.querySelector("#editImagePreview");
+  const imageInput = form.elements.image;
+  const recipes = await getOwnRecipes();
+  const recipe = recipes.find((item) => item.id === recipeId);
+
+  if (!recipe) {
+    form.outerHTML = `
+      <section class="auth-required">
+        <p class="eyebrow">Nicht gefunden</p>
+        <h2>Dieses Rezept kannst du hier nicht bearbeiten.</h2>
+        <a class="button primary" href="meine-rezepte.html">Zu meinen Rezepten</a>
+      </section>
+    `;
+    return;
+  }
+
+  form.elements.title.value = recipe.title;
+  form.elements.note.value = recipe.note;
+  setupRecipeBuilder(form, recipe);
+  if (preview) {
+    preview.hidden = !recipe.image;
+    preview.innerHTML = recipe.image ? `<img src="${recipe.image}" alt="${escapeHtml(recipe.title)}">` : "";
+  }
+
+  if (imageInput && preview) {
+    imageInput.addEventListener("change", async () => {
+      const file = imageInput.files[0];
+      if (!file) {
+        preview.hidden = !recipe.image;
+        preview.innerHTML = recipe.image ? `<img src="${recipe.image}" alt="${escapeHtml(recipe.title)}">` : "";
+        return;
+      }
+
+      if (!file.type.startsWith("image/")) {
+        preview.hidden = !recipe.image;
+        preview.innerHTML = recipe.image ? `<img src="${recipe.image}" alt="${escapeHtml(recipe.title)}">` : "";
+        imageInput.value = "";
+        return;
+      }
+
+      const image = await readImageAsDataUrl(file);
+      preview.hidden = false;
+      preview.innerHTML = `<img src="${image}" alt="Vorschau des ausgewaehlten Gerichts">`;
+    });
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      message.textContent = "Aenderungen werden gespeichert...";
+      await updateSavedRecipe(recipe.id, recipeFromForm(form), new FormData(form).get("image"), recipe.image);
+      message.textContent = "Gespeichert.";
+    } catch (error) {
+      message.textContent = error.message || "Das Rezept konnte nicht gespeichert werden.";
+    }
+  });
+}
+
 async function renderRecipeDetail() {
   const container = document.querySelector("#recipeDetail");
   if (!container) return;
@@ -478,7 +1027,7 @@ async function renderRecipeDetail() {
   const prepDetails = [
     recipe.prepTime ? `${recipe.prepTime} Min. Vorbereitung` : "",
     recipe.cookTime ? `${recipe.cookTime} Min. Kochzeit` : "",
-    recipe.difficulty || ""
+    recipeDifficultyText(recipe.difficulty)
   ].filter(Boolean);
 
   document.title = `${recipe.title} | Kuechenkompass`;
@@ -487,7 +1036,7 @@ async function renderRecipeDetail() {
       <a class="back-link" href="suche.html">Zurueck zur Suche</a>
       <div class="detail-hero-layout">
         <div>
-          <p class="eyebrow">${escapeHtml(recipe.category)}</p>
+          <p class="eyebrow">${escapeHtml(recipe.category || "Rezept")}</p>
           <h1>${escapeHtml(recipe.title)}</h1>
           <p class="detail-note">${escapeHtml(recipe.note || "Ein eigenes Rezept aus deiner Sammlung.")}</p>
           <div class="tag-row">
@@ -501,6 +1050,8 @@ async function renderRecipeDetail() {
       </div>
     </section>
 
+    <section class="detail-actions" id="recipeActions"></section>
+
     <section class="detail-grid">
       <article class="detail-card">
         <h2>Zutaten</h2>
@@ -512,6 +1063,32 @@ async function renderRecipeDetail() {
       </article>
     </section>
   `;
+
+  setupRecipeActions(recipe);
+}
+
+async function setupRecipeActions(recipe) {
+  const container = document.querySelector("#recipeActions");
+  if (!container) return;
+
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const favoriteIds = await getFavoriteRecipeIds();
+  const isFavorite = favoriteIds.includes(recipe.id);
+  const canEdit = recipe.userId === user.id && !recipe.isPublic;
+
+  container.innerHTML = `
+    <button class="button ${isFavorite ? "ghost" : "primary"}" id="favoriteButton" type="button">
+      ${isFavorite ? "Aus Favoriten entfernen" : "Zu Favoriten"}
+    </button>
+    ${canEdit ? `<a class="button ghost" href="bearbeiten.html?id=${encodeURIComponent(recipe.id)}">Rezept bearbeiten</a>` : ""}
+  `;
+
+  document.querySelector("#favoriteButton").addEventListener("click", async () => {
+    await toggleFavorite(recipe.id, !isFavorite);
+    setupRecipeActions(recipe);
+  });
 }
 
 renderDailyTips();
@@ -519,4 +1096,7 @@ renderSearch();
 setupAuthNavigation();
 setupRecipeForm();
 setupAuthForms();
+renderMyRecipes();
+renderFavorites();
+setupEditRecipeForm();
 renderRecipeDetail();

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Kuechenkompass | Rezept erstellen</title>
+    <title>Kuechenkompass | Rezept bearbeiten</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,500,0,0&family=Nunito+Sans:opsz,wght@6..12,400;6..12,700;6..12,800;6..12,900&display=swap" rel="stylesheet">
@@ -20,12 +20,12 @@
 
     <main class="page-shell">
       <section class="page-intro">
-        <p class="eyebrow">Rezept erstellen</p>
-        <h1>Teile deine Rezepte mit der Community</h1>
+        <p class="eyebrow">Rezept bearbeiten</p>
+        <h1>Feile an deinem gespeicherten Rezept.</h1>
       </section>
 
       <section class="create-layout">
-        <form class="recipe-form recipe-builder" id="recipeForm">
+        <form class="recipe-form recipe-builder" id="editRecipeForm">
           <section class="form-section form-section-wide">
             <div class="section-heading compact">
               <p class="eyebrow">Basis</p>
@@ -33,11 +33,11 @@
             </div>
             <label>
               Rezeptname
-              <input name="title" required placeholder="Name des Gerichts">
+              <input name="title" required>
             </label>
             <label>
               Kurzbeschreibung
-              <textarea name="note" rows="3" placeholder="Beschreibe dein Rezept in einem Satz"></textarea>
+              <textarea name="note" rows="3"></textarea>
             </label>
           </section>
 
@@ -63,14 +63,14 @@
             <div class="form-row">
               <label>
                 Vorbereitung in Minuten
-                <input name="prepTime" type="number" min="0" max="240" value="10">
+                <input name="prepTime" type="number" min="0" max="240">
               </label>
               <label>
                 Kochzeit in Minuten
-                <input name="cookTime" type="number" min="0" max="240" value="20">
+                <input name="cookTime" type="number" min="0" max="240">
               </label>
             </div>
-            <div class="total-time" data-total-time>Gesamt: 30 Min.</div>
+            <div class="total-time" data-total-time>Gesamt: 0 Min.</div>
             <input name="difficulty" type="hidden" value="1">
             <div class="difficulty-block">
               <span>Schwierigkeit</span>
@@ -82,7 +82,7 @@
             </div>
             <label>
               Portionen
-              <input name="servings" type="number" min="1" max="20" value="2" required>
+              <input name="servings" type="number" min="1" max="20" required>
             </label>
           </section>
 
@@ -110,13 +110,13 @@
               <h2>Gericht zeigen</h2>
             </div>
             <label>
-              Bild vom Gericht
+              Bild ersetzen
               <input name="image" type="file" accept="image/*">
             </label>
-            <div class="image-preview" id="imagePreview" aria-live="polite" hidden></div>
+            <div class="image-preview" id="editImagePreview" aria-live="polite" hidden></div>
           </section>
-          <button class="button primary" type="submit">Rezept speichern</button>
-          <p class="form-message" id="formMessage" role="status"></p>
+          <button class="button primary" type="submit">Aenderungen speichern</button>
+          <p class="form-message" id="editMessage" role="status"></p>
         </form>
       </section>
     </main>

@@ -46,6 +46,33 @@ create policy "Users can delete their own recipes"
   for delete
   using (auth.uid() = user_id and is_public = false);
 
+create table if not exists public.recipe_favorites (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  recipe_id uuid not null references public.recipes(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, recipe_id)
+);
+
+alter table public.recipe_favorites enable row level security;
+
+drop policy if exists "Users can read their favorites" on public.recipe_favorites;
+create policy "Users can read their favorites"
+  on public.recipe_favorites
+  for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can create their favorites" on public.recipe_favorites;
+create policy "Users can create their favorites"
+  on public.recipe_favorites
+  for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their favorites" on public.recipe_favorites;
+create policy "Users can delete their favorites"
+  on public.recipe_favorites
+  for delete
+  using (auth.uid() = user_id);
+
 insert into public.recipes (
   id,
   user_id,
