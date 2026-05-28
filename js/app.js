@@ -369,7 +369,7 @@ function recipeCard(recipe) {
     .map((item) => `<span class="tag">${escapeHtml(item)}</span>`)
     .join("");
   const ingredientTags = recipe.ingredients
-    .slice(0, 4)
+    .slice(0, 0)
     .map((item) => `<span class="tag">${escapeHtml(item)}</span>`)
     .join("");
   const image = recipe.image
