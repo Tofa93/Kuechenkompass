@@ -15,12 +15,17 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
   font-family: "Nunito Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
+  overflow-x: hidden;
 }
 
 a {
@@ -286,6 +291,7 @@ h2 {
   margin: 0 auto;
   max-width: 1360px;
   padding: 56px clamp(16px, 4vw, 32px);
+  width: 100%;
 }
 
 .section-heading {
@@ -1268,6 +1274,238 @@ textarea {
 
   .detail-image {
     aspect-ratio: 16 / 10;
+  }
+
+  .ingredient-list,
+  .step-list {
+    padding-left: 18px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .site-header,
+  .search-layout,
+  .create-layout,
+  .recipe-builder,
+  .search-panel,
+  .feature-band,
+  .detail-grid,
+  .detail-hero-layout,
+  .auth-layout,
+  .add-inline,
+  .ingredient-row,
+  .step-row,
+  .difficulty-scale,
+  .form-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .site-header {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+    padding: 10px 12px;
+    position: relative;
+  }
+
+  .brand,
+  .main-nav,
+  .user-menu,
+  .user-menu-button {
+    width: 100%;
+  }
+
+  .brand {
+    font-size: 0.98rem;
+  }
+
+  .brand-mark {
+    height: 32px;
+    width: 32px;
+  }
+
+  .main-nav {
+    gap: 6px;
+    justify-content: flex-start;
+  }
+
+  .main-nav > a {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .main-nav a,
+  .nav-button {
+    font-size: 0.88rem;
+    padding: 7px 9px;
+  }
+
+  .user-menu-button {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .user-menu-panel {
+    margin-top: 8px;
+    min-width: 0;
+    position: static;
+    width: 100%;
+  }
+
+  .section-wrap,
+  .feature-band,
+  .page-shell {
+    max-width: 100%;
+    padding: 28px 12px;
+  }
+
+  .page-intro {
+    max-width: none;
+    padding-bottom: 16px;
+  }
+
+  .page-intro h1,
+  .detail-hero h1 {
+    font-size: clamp(2rem, 11vw, 3.25rem);
+    overflow-wrap: anywhere;
+  }
+
+  .hero {
+    min-height: min(600px, calc(100svh - 92px));
+  }
+
+  .hero::after {
+    background: linear-gradient(0deg, rgba(19, 27, 24, 0.82), rgba(19, 27, 24, 0.32));
+  }
+
+  .hero-copy {
+    align-self: end;
+    padding: 42px 16px;
+  }
+
+  .hero-actions,
+  .card-actions,
+  .detail-actions,
+  .result-meta {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+  }
+
+  .button,
+  .hero-actions a,
+  .card-actions a,
+  .card-actions button,
+  .detail-actions a,
+  .detail-actions button {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .recipe-grid,
+  .tip-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .tip-card,
+  .recipe-card,
+  .saved-card,
+  .filters,
+  .recipe-form,
+  .auth-form,
+  .auth-required,
+  .detail-card {
+    padding: 14px;
+  }
+
+  .recipe-card-image,
+  .detail-image {
+    aspect-ratio: 16 / 10;
+    margin-top: 0;
+  }
+
+  .filters {
+    position: static;
+  }
+
+  .search-panel {
+    gap: 14px;
+  }
+
+  .filter-chips,
+  .category-tabs {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .filter-chip,
+  .category-tab,
+  .selected-category {
+    font-size: 0.84rem;
+  }
+
+  .filter-chip {
+    min-height: 36px;
+    padding: 7px 10px;
+  }
+
+  .recipe-builder,
+  .search-panel,
+  .filters,
+  .recipe-form,
+  .saved-panel,
+  .auth-form,
+  .auth-required,
+  .detail-card {
+    padding: 14px;
+  }
+
+  .recipe-builder > .form-section,
+  .recipe-builder > .button,
+  .recipe-builder > .form-message {
+    grid-column: 1 / -1 !important;
+  }
+
+  .ingredient-row,
+  .step-row {
+    gap: 8px;
+  }
+
+  .icon-button {
+    width: 100%;
+  }
+
+  .difficulty-rating {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 8px;
+  }
+
+  .difficulty-rating button {
+    height: 40px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .difficulty-scale {
+    gap: 8px;
+  }
+
+  .difficulty-scale > span {
+    justify-self: start;
+  }
+
+  .auth-shell {
+    max-width: none;
+  }
+
+  .auth-layout.single {
+    grid-template-columns: 1fr !important;
+  }
+
+  .detail-hero {
+    margin-bottom: 20px;
+    padding-bottom: 22px;
   }
 
   .ingredient-list,
