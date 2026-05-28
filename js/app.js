@@ -1,60 +1,3 @@
-const baseRecipes = [
-  {
-    id: "gruene-pasta-zitrone",
-    title: "Gruene Pasta mit Zitrone",
-    category: "Schnell",
-    time: 22,
-    ingredients: ["Pasta", "Spinat", "Zitrone", "Parmesan"],
-    steps: "Pasta kochen. Spinat mit Zitronensaft und etwas Pastawasser kurz cremig mixen. Alles mit Parmesan vermengen und abschmecken.",
-    note: "Frisch, cremig und gut fuer volle Wochentage."
-  },
-  {
-    id: "ofengemuese-feta",
-    title: "Ofengemuese mit Feta",
-    category: "Vegetarisch",
-    time: 40,
-    ingredients: ["Suesskartoffel", "Paprika", "Feta", "Kichererbsen"],
-    steps: "Gemuese grob schneiden und mit Oel, Salz und Gewuerzen mischen. Auf einem Blech backen, Feta am Ende darueber broeseln.",
-    note: "Ein Blech, wenig Abwasch, viel Farbe."
-  },
-  {
-    id: "tomatenreis-fuer-alle",
-    title: "Tomatenreis fuer alle",
-    category: "Familie",
-    time: 35,
-    ingredients: ["Reis", "Tomaten", "Erbsen", "Kraeuter"],
-    steps: "Reis mit Tomaten und Bruehe garen. Erbsen kurz vor Ende zugeben. Mit frischen Kraeutern und etwas Oel servieren.",
-    note: "Mild, saettigend und gut vorzubereiten."
-  },
-  {
-    id: "couscous-box",
-    title: "Couscous-Box",
-    category: "Meal Prep",
-    time: 18,
-    ingredients: ["Couscous", "Gurke", "Tomate", "Joghurt"],
-    steps: "Couscous quellen lassen. Gemuese wuerfeln. Joghurt mit Salz, Zitrone und Kraeutern verruehren. Alles in Boxen schichten.",
-    note: "Kalt genauso stark wie warm."
-  },
-  {
-    id: "pilzpfanne-kartoffeln",
-    title: "Pilzpfanne mit Kartoffeln",
-    category: "Vegetarisch",
-    time: 45,
-    ingredients: ["Kartoffeln", "Champignons", "Zwiebeln", "Petersilie"],
-    steps: "Kartoffeln vorkochen und anbraten. Pilze und Zwiebeln separat kraeftig roesten. Zusammenfuehren und mit Petersilie abschliessen.",
-    note: "Rustikal, herzhaft und unkompliziert."
-  },
-  {
-    id: "schnelle-linsensuppe",
-    title: "Schnelle Linsensuppe",
-    category: "Schnell",
-    time: 28,
-    ingredients: ["Rote Linsen", "Karotte", "Kokosmilch", "Curry"],
-    steps: "Karotte anschwitzen, Linsen und Curry zugeben. Mit Bruehe garen, Kokosmilch einruehren und cremig abschmecken.",
-    note: "Waermend und in einem Topf fertig."
-  }
-];
-
 const recipeImageBucket = "recipe-images";
 let supabaseClient;
 
@@ -189,13 +132,18 @@ function normalizeRecipe(recipe) {
 async function getSavedRecipes() {
   const client = getSupabase();
   const user = await getCurrentUser();
-  if (!client || !user) return [];
+  if (!client) return [];
 
-  const { data, error } = await client
+  let query = client
     .from("recipes")
     .select("*")
-    .eq("user_id", user.id)
     .order("created_at", { ascending: false });
+
+  query = user
+    ? query.or(`is_public.eq.true,user_id.eq.${user.id}`)
+    : query.eq("is_public", true);
+
+  const { data, error } = await query;
 
   if (error) {
     console.error(error);
@@ -206,8 +154,7 @@ async function getSavedRecipes() {
 }
 
 async function allRecipes() {
-  const savedRecipes = await getSavedRecipes();
-  return [...savedRecipes, ...baseRecipes.map(normalizeRecipe)];
+  return getSavedRecipes();
 }
 
 async function uploadRecipeImage(file, userId) {
